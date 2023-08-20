@@ -58,3 +58,6 @@ nobuild.old
 nobuild.*.old
 setup_env.sh
 setup_env.bat
+compile_commands.json
+
+.cache
