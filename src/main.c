@@ -6,7 +6,7 @@ int main(int argc, char *argv[])
   (void)argc;
   (void)argv;
 
-  printf("hello saylor %lu\n", time(NULL));
+  printf("hello saylor\n");
 
   return 0;
 }

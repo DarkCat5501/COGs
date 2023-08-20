@@ -111,6 +111,7 @@ Cstr_Array cstr_array_make(Cstr first, ...);
 Cstr_Array cstr_array_append(Cstr_Array cstrs, Cstr cstr);
 Cstr cstr_array_join(Cstr sep, Cstr_Array cstrs);
 
+#define MAKE_CSTR_ARRAY(...) cstr_array_make(__VA_ARGS__, NULL)
 #define JOIN(sep, ...) cstr_array_join(sep, cstr_array_make(__VA_ARGS__, NULL))
 #define CONCAT(...) JOIN("", __VA_ARGS__)
 #define PATH(...) JOIN(PATH_SEP, __VA_ARGS__)
@@ -135,6 +136,7 @@ void pid_wait(Pid pid);
 Cstr cmd_show(Cmd cmd);
 Pid cmd_run_async(Cmd cmd, Fd *fdin, Fd *fdout);
 void cmd_run_sync(Cmd cmd);
+int is_path1_modified_after_path2(Cstr path1,Cstr path2);
 
 typedef struct {
     Cmd *elems;
@@ -244,9 +246,9 @@ void chain_echo(Chain chain);
 //
 #define GO_REBUILD_URSELF(argc, argv)                                  \
     do {                                                               \
-        const char *source_path = __FILE__;                            \
+        Cstr source_path = __FILE__;                            \
         assert(argc >= 1);                                             \
-        const char *binary_path = argv[0];                             \
+        Cstr binary_path = argv[0];                             \
                                                                        \
         if (is_path1_modified_after_path2(source_path, binary_path)) { \
             RENAME(binary_path, CONCAT(binary_path, ".old"));          \
@@ -264,7 +266,7 @@ void chain_echo(Chain chain);
     } while(0)
 // The implementation idea is stolen from https://github.com/zhiayang/nabs
 
-void rebuild_urself(const char *binary_path, const char *source_path);
+void rebuild_urself(Cstr binary_path, Cstr source_path);
 
 int path_is_dir(Cstr path);
 #define IS_DIR(path) path_is_dir(path)
@@ -1070,7 +1072,7 @@ void path_rm(Cstr path)
     }
 }
 
-int is_path1_modified_after_path2(const char *path1, const char *path2)
+int is_path1_modified_after_path2(Cstr path1,Cstr path2)
 {
 #ifdef _WIN32
     FILETIME path1_time, path2_time;

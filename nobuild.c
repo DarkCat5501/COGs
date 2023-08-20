@@ -55,7 +55,7 @@ Cstr_Array split(char* data,Cstr delim){
   char * token = strtok(data, delim);
   // loop through the string to extract all other tokens
   while( token != NULL ) {
-    cstr_array_append(tokens, token);
+    tokens = cstr_array_append(tokens, token);
     token = strtok(NULL, delim);
   }
 
@@ -79,44 +79,82 @@ char* read_file(Cstr file_path){
 
   __off_t size = lseek(file, 0, SEEK_END);
   if(size == -1){ PANIC("Failed to read file %s\n",file_path); exit(-1); }
-  if(lseek(bdeps_file,0, SEEK_SET)){ PANIC("Failed to read file %s\n",bdeps_file_path); exit(-1); }
+  if(lseek(file,0, SEEK_SET)){ PANIC("Failed to read file %s\n",file_path); exit(-1); }
   
   char* buffer = (char*)malloc(size + 1);
   memset(buffer,0,size + 1);
-  size_t rd = read(bdeps_file,buffer, size);
-  fd_close(bdeps_file);
+  size_t rd = read(file,buffer, size);
+  fd_close(file);
 
-  INFO("file content: size:%lld read: %zul\n%s",(long long)size,rd,buffer);
-    return buffer;
-  }
+  INFO("Checking dependencies file '%s' { s: %lld(b) r: %zu(b)}",file_path,(long long)size,rd);
+  return buffer;
+
 #else
 assert(false); //NOT Implemented for windows
 #endif
 }
 
-void check_bdeps(Cstr bdeps_file_path){
+int check_build_deps(Cstr current, Cstr_Array deps){
+  int needs_rebuild = 0;
+  for(int i=0;i<deps.count;i++){
+    Cstr dep = deps.elems[i];
+    // INFO("checking %s",dep);
+    if(is_path1_modified_after_path2(dep, current)){
+      INFO("Dependency modified: '%s' > '%s'",dep,current);
+      needs_rebuild = 1;
+      break;
+    }
+  }
+  return needs_rebuild;
 }
 
-void build_app(void) {
-  Cstr main_c = SRC("main.c");
-  Cstr main_o = DEP("main.o");
-  Cstr main_d = BDEP("main.d");
+int check_deps(Cstr bdeps_file_path){
+  char* deps_data = read_file(bdeps_file_path);
+  if(deps_data==NULL) return 0;
+
+  Cstr_Array dt = split(deps_data, ": \\\n");
+  if(dt.count < 1){
+    WARN("No valid dependencies found: {%s}\n:---:\n%s\n:---:", strerror(errno),deps_data);
+    exit(1);
+  }
+
+  Cstr dep_obj = dt.elems[0];
+  int needs_rebuild = check_build_deps(dep_obj, dt);
+
+  free(deps_data);
+  return needs_rebuild;
+}
+
+int build_app(void) {
+  Cstr main_c = SRC("main.c"), main_o = DEP("main.o"), main_d = BDEP("main.d");
+  int total_rebuild = 0;
 
   if(PATH_EXISTS(main_d)){
-    check_bdeps(main_d);
+    if(!check_deps(main_d)) goto end;
   }
-  return;
+  INFO("==== Compiling '%s'",main_c);
+  CMD(CC, CMFLAGS, CFLAGS,"-MD","-MF",main_d,"-c", main_c, "-o", main_o, INCLUDES);
 
-  CMD(CC, CMFLAGS, CFLAGS,
-      "-MD","-MF",main_d,
-      "-c", main_c, "-o", main_o, INCLUDES);
+  end:
+  return total_rebuild;
 }
 
-void link_app(void){
+int link_app(void){
   Cstr app_name = CONCAT(PROJECT_NAME,".out");
-  CMD(CC,LFLAGS, "-o", PATH(BUILD_PATH,BUILD_TYPE,app_name),
-    DEP("main.o")
-  );
+  Cstr app_file = PATH(BUILD_PATH,BUILD_TYPE,app_name);
+
+  #define DEPS DEP("main.o")
+
+  if(PATH_EXISTS(app_file)){
+    Cstr_Array deps_array = MAKE_CSTR_ARRAY(DEPS);
+    if(!check_build_deps(app_file, deps_array)) return 0;
+  }
+
+  INFO("==== Linking '%s' ====",app_file);
+  CMD(CC,LFLAGS, "-o", app_file,DEPS);
+
+  #undef DEPS
+  return 1;
 }
 
 int main(int argc, char** argv){
@@ -132,11 +170,11 @@ int main(int argc, char** argv){
   if(!path_exists(MODULES_PATH)) MKDIRS(MODULES_PATH);
   if(!path_exists(PATH(BUILD_PATH,BUILD_TYPE))) MKDIRS(BUILD_PATH,BUILD_TYPE);
 
-  build_app();
-  link_app();
+  int total_build = build_app();
+  total_build += link_app();
 
   const clock_t delta = (T_NOW_MS - start);
-  INFO("Build took: %6.3f(s)\n", delta / 1000.0f);
+  INFO("Building %d packages took: %6.3f(s)\n",total_build, delta / 1000.0f);
 
   return 0;
 }
